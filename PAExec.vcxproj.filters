@@ -61,6 +61,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="$(IntDir)Version.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
     <ResourceCompile Include="PAExec.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
