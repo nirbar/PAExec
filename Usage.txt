@@ -140,6 +140,9 @@ Additional options only available in PAExec:
      -sname    Remote service name.
                This option is not compatible with -noname
 
+     -dd       Specifies optional folder on the remote server. If you omit this 
+               option, same folder as local will be used.
+
 The application name, copy source, working directory and log file
 entries can be quoted if the path contains a space.  For example:
 PAExec \\test-server -w "C:\path with space" "C:\program files\app.exe"

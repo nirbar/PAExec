@@ -700,9 +700,19 @@ bool Settings::ResolveFilePaths()
 	for(std::vector<FileInfo>::iterator itr = pFileList->begin(); pFileList->end() != itr; itr++)
 	{
 		CString path = *pDir;
-		if((FALSE == path.IsEmpty()) && (path.Right(1) != L"\\"))
-			path += L"\\";
-		path += (*itr).filenameOnly;
+		if (path.IsEmpty())
+		{
+			path = (*itr).filenameOnly;
+		}
+		else
+		{
+			if (path.Right(1) != L"\\")
+			{
+				path += L"\\";
+			}
+			LPWSTR szFileName = ::PathFindFileName((*itr).filenameOnly);
+			path += szFileName;
+		}
 
 		wchar_t expanded[_MAX_PATH * 4] = {0};
 		ExpandEnvironmentStrings(path, expanded, sizeof(expanded)/sizeof(wchar_t));

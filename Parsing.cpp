@@ -183,6 +183,7 @@ CommandList gSupportedCommands[] =
 {
 	{L"u", true, true},
 	{L"p", true, false},
+	{L"dd", true, true},
 	{L"p@", true, true},
 	{L"p@d", false, false},
 	{L"n", true, true},
@@ -447,6 +448,16 @@ bool ParseCommandLine(Settings& settings, LPCWSTR cmdLine)
 			if(cmdParser.HasKey(L"p@d"))
 				if(FALSE == DeleteFile(passFile))
 					Log(L"Failed to delete p@d file", false);
+		}
+
+		if (cmdParser.HasKey(L"dd"))
+		{
+			settings.destDir = cmdParser.GetVal(L"dd");
+			if (settings.destDir.IsEmpty())
+			{
+				Log(L"-dd without destination directory", true);
+				return false;
+			}
 		}
 
 		if(cmdParser.HasKey(L"u"))
