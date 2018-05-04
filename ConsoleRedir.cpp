@@ -121,7 +121,7 @@ UINT WINAPI ListenRemoteOutPipeThread(void* p)
 	{ 
 		OVERLAPPED olR = {0};
 		olR.hEvent = hEvent;
-		if (!ReadFile( pLP->pSettings->hStdOut, szBuffer, SIZEOF_BUFFER - 1, &dwRead, &olR) || (dwRead == 0)) 
+		if (!ReadFile( pLP->pSettings->hStdOut, szBuffer, SIZEOF_BUFFER - 1, &dwRead, &olR) || (dwRead == 0))
 		{
 			DWORD dwErr = GetLastError();
 			if ( dwErr == ERROR_NO_DATA)
@@ -135,7 +135,7 @@ UINT WINAPI ListenRemoteOutPipeThread(void* p)
 		waits[0] = pLP->hStop;
 		waits[1] = hEvent;
 		DWORD ret = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
-		if(ret == WAIT_OBJECT_0)
+		if (ret == WAIT_OBJECT_0)
 			break; //need to exit
 		_ASSERT(ret == WAIT_OBJECT_0 + 1); //data in buffer now
 
@@ -191,7 +191,7 @@ UINT WINAPI ListenRemoteOutPipeThread(void* p)
 			fprintf(stdout, "%s", szBuffer); 
 			fflush(stdout); 
 		}
-	} 
+	}
 
 	CloseHandle(hEvent);
 
@@ -262,6 +262,7 @@ UINT WINAPI ListenRemoteStdInputPipeThread(void* p)
 	DWORD nBytesWrote = 0;
 
 	HANDLE hWritePipe = CreateEvent(NULL, TRUE, FALSE, NULL);
+	HANDLE hReadEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
 	DWORD oldMode = 0;
 	GetConsoleMode(hInput, &oldMode);
@@ -294,12 +295,25 @@ UINT WINAPI ListenRemoteStdInputPipeThread(void* p)
 
 		nBytesRead = 0;
 		//if ( !ReadConsole( hInput, szInputBuffer, SIZEOF_BUFFER, &nBytesRead, NULL ) ) -- returns UNICODE which is not what we want
-		if (!ReadFile( hInput, szInputBuffer, SIZEOF_BUFFER - 1, &nBytesRead, NULL))
+		OVERLAPPED olR = { 0 };
+		olR.hEvent = hReadEvent;
+		if (!ReadFile(pLP->pSettings->hStdOut, szInputBuffer, SIZEOF_BUFFER - 1, &nBytesRead, &olR))
 		{
 			DWORD dwErr = GetLastError();
-			if ( dwErr == ERROR_NO_DATA)
+			if (dwErr == ERROR_NO_DATA)
 				break;
 		}
+
+		if (gbStop)
+			break;
+
+		HANDLE readWaits[2];
+		readWaits[0] = pLP->hStop;
+		readWaits[1] = hReadEvent;
+		DWORD ret = WaitForMultipleObjects(2, readWaits, FALSE, INFINITE);
+		if (ret == WAIT_OBJECT_0)
+			break; //need to exit
+		_ASSERT(ret == WAIT_OBJECT_0 + 1); //data in buffer now
 
 		if(gbStop)
 			break;
@@ -326,10 +340,10 @@ UINT WINAPI ListenRemoteStdInputPipeThread(void* p)
 		if(gbStop)
 			break;
 		 
-		HANDLE waits[2];
-		waits[0] = pLP->hStop;
-		waits[1] = olW.hEvent;
-		DWORD ret = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+		HANDLE writeWaits[2];
+		writeWaits[0] = pLP->hStop;
+		writeWaits[1] = olW.hEvent;
+		ret = WaitForMultipleObjects(2, writeWaits, FALSE, INFINITE);
 		if(ret == WAIT_OBJECT_0)
 			break; //need to exit
 		_ASSERT(ret == WAIT_OBJECT_0 + 1); //write finished

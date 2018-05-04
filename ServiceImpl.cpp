@@ -97,7 +97,7 @@ UINT WINAPI PipeClientThreadProc(void* p)
 		{ 
 			DWORD cbRead = 0;
 			// Read from the pipe. 
-			fSuccess = ReadFile( 
+			fSuccess = ReadFile(
 				hPipe,			// pipe handle 
 				buff,			// buffer to receive reply 
 				sizeof(buff), // size of buffer 
@@ -137,13 +137,13 @@ UINT WINAPI PipeClientThreadProc(void* p)
 		const BYTE* pDataToSend = response.GetDataToSend(totalLen);
 		DWORD cbWritten = 0;
 		// Send a message to the pipe server. 
-		fSuccess = WriteFile( 
+		fSuccess = WriteFile(
 					hPipe,     // pipe handle 
 					pDataToSend, // message 
 					totalLen,  // message length 
 					&cbWritten,// bytes written 
 					NULL);     // not overlapped 
-		if (!fSuccess || (cbWritten != totalLen)) 
+		if (!fSuccess || (cbWritten != totalLen))
 		{
 			gle = GetLastError();
 			Log(L"Error sending data back -- stopping service.", gle);
@@ -156,13 +156,13 @@ UINT WINAPI PipeClientThreadProc(void* p)
 	// before disconnecting. Then disconnect the pipe, and close the 
 	// handle to this pipe instance. 
 
-	FlushFileBuffers(hPipe); 
-	DisconnectNamedPipe(hPipe); 
-	CloseHandle(hPipe); 
+	FlushFileBuffers(hPipe);
+	DisconnectNamedPipe(hPipe);
+	CloseHandle(hPipe);
 
 	if(bBail)
 		ServiceControlHandler(SERVICE_CONTROL_STOP);
-
+	
 	return 0;
 }
 
