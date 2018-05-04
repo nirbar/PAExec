@@ -574,7 +574,7 @@ void StartRemoteApp(LPCWSTR remoteServer, Settings& settings, HANDLE& hPipe, int
 
 	if(response.m_msgID == MSGID_OK)
 	{
-		response >> (DWORD&)appExitCode;		
+		response >> (DWORD&)appExitCode;
 		if(false == settings.bDontWaitForTerminate)
 			Log(StrFormat(L"%s returned %i", settings.app, appExitCode), false);
 		else
@@ -819,6 +819,16 @@ void HandleMsg(RemMsg& msg, RemMsg& response, HANDLE hPipe)
 		response.m_msgID = MSGID_OK;
 		if(gLogPath.IsEmpty())
 			gLogPath = pRemoteSettings->remoteLogPath;
+		if (!gLogPath.IsEmpty())
+		{
+			wchar_t expanded[_MAX_PATH * 4] = { 0 };
+			ExpandEnvironmentStrings(gLogPath, expanded, sizeof(expanded) / sizeof(wchar_t));
+			if (0 != ::wcslen(expanded))
+			{
+				gLogPath = expanded;
+			}
+		}
+
 		gbODS = pRemoteSettings->bODS; //now service will use whatever command was sent
 
 		Log(StrFormat(L"-------------\r\nUser: '%s', LocalSystem: %s, Interactive: %s, Session: %i", pRemoteSettings->user, pRemoteSettings->bUseSystemAccount ? L"true" : L"false", pRemoteSettings->bInteractive ? L"true" : L"false", pRemoteSettings->sessionToInteractWith), false);

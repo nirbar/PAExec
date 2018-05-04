@@ -54,236 +54,245 @@ int wmain(int argc, wchar_t* argv[], wchar_t* envp[])
 	//}
 	//else
 	//{
-		VERIFY(SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE));
+	VERIFY(SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE));
 
-		CCmdLineParser cmdParser;
-		cmdParser.Parse(::GetCommandLine());
+	CCmdLineParser cmdParser;
+	cmdParser.Parse(::GetCommandLine());
 
-		if(cmdParser.HasKey(L"service"))
-		{
-			//Service Control Manager launched us -- we're a service!
-			return StartLocalService(cmdParser);
-		}
+	if (cmdParser.HasKey(L"service"))
+	{
+		//Service Control Manager launched us -- we're a service!
+		return StartLocalService(cmdParser);
+	}
 
-		Settings settings;
+	Settings settings;
 
-		//read early so logging is started as soon as possible
-		if(cmdParser.HasKey(L"dbg"))
-		{
-			settings.bODS = true;
-			gbODS = true;
-		}
-
-		if(cmdParser.HasKey(L"lo"))
-		{
-			gLogPath = settings.localLogPath = cmdParser.GetVal(L"lo");
-			if(settings.localLogPath.IsEmpty())
-				Log(L"-lo missing value", true);
-		}
-
-#ifdef _DEBUG
+	//read early so logging is started as soon as possible
+	if (cmdParser.HasKey(L"dbg"))
+	{
+		settings.bODS = true;
 		gbODS = true;
-#endif
+	}
 
-		PrintCopyright();
+	if (cmdParser.HasKey(L"lo"))
+	{
+		gLogPath = settings.localLogPath = cmdParser.GetVal(L"lo");
+		if (settings.localLogPath.IsEmpty())
+			Log(L"-lo missing value", true);
+		else
+		{
+			wchar_t expanded[_MAX_PATH * 4] = { 0 };
+			ExpandEnvironmentStrings(gLogPath, expanded, sizeof(expanded) / sizeof(wchar_t));
+			if (0 != ::wcslen(expanded))
+			{
+				gLogPath = expanded;
+			}
+		}
+	}
 
 #ifdef _DEBUG
-		RegressionTests();
+	gbODS = true;
 #endif
 
-		if(ParseCommandLine(settings, ::GetCommandLine()))
+	PrintCopyright();
+
+#ifdef _DEBUG
+	RegressionTests();
+#endif
+
+	if (ParseCommandLine(settings, ::GetCommandLine()))
+	{
+		if (gbStop)
 		{
-			if(gbStop)
-			{
-				exitCode = -11;
-				goto Exit;
-			}
+			exitCode = -11;
+			goto Exit;
+		}
 
-			if(settings.computerList.empty())
+		if (settings.computerList.empty())
+		{
+			if (settings.bUseSystemAccount || ((DWORD)-1 != settings.sessionToInteractWith))
 			{
-				if(settings.bUseSystemAccount || ((DWORD)-1 != settings.sessionToInteractWith))
+				//have to run service locally
+				settings.computerList.push_back(L".");
+			}
+		}
+
+		if (settings.computerList.empty())
+		{
+			//run locally
+			bool b = StartProcess(settings, NULL);
+			if (b)
+			{
+				if (false == settings.bDontWaitForTerminate)
 				{
-					//have to run service locally
-					settings.computerList.push_back(L".");
+					DWORD waitMS = settings.timeoutSeconds * 1000;
+					if (waitMS == 0)
+						waitMS = INFINITE;
+					DWORD ret = WaitForSingleObject(settings.hProcess, waitMS);
+					switch (ret)
+					{
+					case WAIT_TIMEOUT:
+						Log(L"PAExec timed out waiting for app to exit -- terminating app", true);
+						TerminateProcess(settings.hProcess, (DWORD)-10);
+						break;
+					case WAIT_OBJECT_0: break;
+					default: Log(L"PAExec error waiting for app to exit", GetLastError());
+						break;
+					}
+					GetExitCodeProcess(settings.hProcess, (DWORD*)&exitCode);
 				}
+				else
+					Log(StrFormat(L"%s started with process ID %u", settings.app, settings.processID), false);
 			}
-
-			if(settings.computerList.empty())
-			{
-				//run locally
-				bool b = StartProcess(settings, NULL);
-				if(b)
-				{
-					if(false == settings.bDontWaitForTerminate)
-					{
-						DWORD waitMS = settings.timeoutSeconds * 1000;
-						if(waitMS == 0)
-							waitMS = INFINITE;
-						DWORD ret = WaitForSingleObject(settings.hProcess, waitMS);
-						switch(ret)
-						{
-						case WAIT_TIMEOUT:
-							Log(L"PAExec timed out waiting for app to exit -- terminating app", true);
-							TerminateProcess(settings.hProcess, (DWORD)-10);
-							break;
-						case WAIT_OBJECT_0: break;
-						default: Log(L"PAExec error waiting for app to exit", GetLastError()); 
-							break;
-						}
-						GetExitCodeProcess(settings.hProcess, (DWORD*)&exitCode);
-					}
-					else
-						Log(StrFormat(L"%s started with process ID %u", settings.app, settings.processID), false);
-				}
-				if(false == b)
-					exitCode = -3;
-				CloseHandle(settings.hProcess);
-			}
-			else
-			{
-				for(std::vector<CString>::iterator cItr = settings.computerList.begin(); (settings.computerList.end() != cItr) && (false == gbStop); cItr++)
-				{
-					HANDLE hPipe = INVALID_HANDLE_VALUE;
-
-					settings.bNeedToDetachFromAdmin = false;
-					settings.bNeedToDetachFromIPC = false;
-					settings.bNeedToDeleteServiceFile = false;
-					settings.bNeedToDeleteService = false;
-					settings.hProcess = NULL;
-					settings.processID = 0;
-					settings.hStdErr = NULL;
-					settings.hStdIn = NULL;
-					settings.hStdOut = NULL;
-
-					bool bNeedToSendFile = false;
-
-					CString shownTargetName = *cItr;
-					if(shownTargetName == L".")
-						shownTargetName = L"{local server}";
-
-					Log(StrFormat(L"\r\nConnecting to %s...", shownTargetName), false);
-
-					//ADMIN$ and IPC$ connections will be made as needed in CopyPAExecToRemote and InstallAndStartRemoteService
-
-					__time64_t start = _time64(NULL);
-					//copy myself
-					if(false == CopyPAExecToRemote(settings, *cItr)) //logs on error
-					{
-						exitCode = -4;
-						goto PerServerCleanup;
-					}
-
-					if(CheckTimeout(start, *cItr, settings))
-					{
-						exitCode = -5;
-						goto PerServerCleanup;
-					}
-
-					Log(StrFormat(L"Starting PAExec service on %s...", shownTargetName), false);
-					//install myself as a remote service and start remote service
-					if(false == InstallAndStartRemoteService(*cItr, settings)) //logs on error
-					{
-						exitCode = -6;
-						goto PerServerCleanup;
-					}
-
-					settings.bNeedToDeleteService = true; //always try to clean up if we've gotten this far
-
-					//Send settings, and find out if file(s) need to be copied
-					if(false == SendSettings(*cItr, settings, hPipe, bNeedToSendFile))
-					{
-						exitCode = -7;
-						goto PerServerCleanup;
-					}
-
-					//copy target if needed
-					if(bNeedToSendFile)
-					{
-						if(1 == settings.srcFileInfos.size())
-							Log(StrFormat(L"Copying %s remotely...", settings.srcFileInfos[0].filenameOnly), false);
-						else
-							Log(StrFormat(L"Copying %u files remotely...", settings.srcFileInfos.size()), false);
-
-						if(false == SendFilesToRemote(*cItr, settings, hPipe))
-						{
-							exitCode = -8;
-							goto PerServerCleanup;
-						}
-					}
-
-					Log(L"", false); //blank line
-
-					//establish communication with remote service
-					//when this returns, the remote app has shutdown (or we weren't supposed to wait for it)
-					StartRemoteApp(*cItr, settings, hPipe, exitCode);
-
-PerServerCleanup:
-					if(settings.bNeedToDeleteService)
-						StopAndDeleteRemoteService(*cItr, settings); //always cleanup
-					if(settings.bNeedToDeleteServiceFile)
-						DeletePAExecFromRemote(*cItr, settings);
-					if(settings.bNeedToDetachFromAdmin)
-						EstablishConnection(settings, *cItr, L"ADMIN$", false);
-					if(settings.bNeedToDetachFromIPC)
-						EstablishConnection(settings, *cItr, L"IPC$", false);
-					if(false == gbStop) //if stopping, just bail -- the OS will close these (and some of them might be invalid now anyway)
-					{
-						if(!BAD_HANDLE(hPipe))
-							CloseHandle(hPipe);
-						if(!BAD_HANDLE(settings.hProcess))
-						{
-							CloseHandle(settings.hProcess);
-							settings.hProcess = NULL;
-						}
-						if(!BAD_HANDLE(settings.hStdErr))
-						{
-							CloseHandle(settings.hStdErr);
-							settings.hStdErr = NULL;
-						}
-						if(!BAD_HANDLE(settings.hStdIn))
-						{
-							CloseHandle(settings.hStdIn);
-							settings.hStdIn = NULL;
-						}
-						if(!BAD_HANDLE(settings.hStdOut))
-						{
-							CloseHandle(settings.hStdOut);
-							settings.hStdOut = NULL;
-						}
-					}
-				}
-			}
+			if (false == b)
+				exitCode = -3;
+			CloseHandle(settings.hProcess);
 		}
 		else
 		{
-			if(gbStop)
+			for (std::vector<CString>::iterator cItr = settings.computerList.begin(); (settings.computerList.end() != cItr) && (false == gbStop); cItr++)
 			{
-				exitCode = -11;
-				goto Exit;
+				HANDLE hPipe = INVALID_HANDLE_VALUE;
+
+				settings.bNeedToDetachFromAdmin = false;
+				settings.bNeedToDetachFromIPC = false;
+				settings.bNeedToDeleteServiceFile = false;
+				settings.bNeedToDeleteService = false;
+				settings.hProcess = NULL;
+				settings.processID = 0;
+				settings.hStdErr = NULL;
+				settings.hStdIn = NULL;
+				settings.hStdOut = NULL;
+
+				bool bNeedToSendFile = false;
+
+				CString shownTargetName = *cItr;
+				if (shownTargetName == L".")
+					shownTargetName = L"{local server}";
+
+				Log(StrFormat(L"\r\nConnecting to %s...", shownTargetName), false);
+
+				//ADMIN$ and IPC$ connections will be made as needed in CopyPAExecToRemote and InstallAndStartRemoteService
+
+				__time64_t start = _time64(NULL);
+				//copy myself
+				if (false == CopyPAExecToRemote(settings, *cItr)) //logs on error
+				{
+					exitCode = -4;
+					goto PerServerCleanup;
+				}
+
+				if (CheckTimeout(start, *cItr, settings))
+				{
+					exitCode = -5;
+					goto PerServerCleanup;
+				}
+
+				Log(StrFormat(L"Starting PAExec service on %s...", shownTargetName), false);
+				//install myself as a remote service and start remote service
+				if (false == InstallAndStartRemoteService(*cItr, settings)) //logs on error
+				{
+					exitCode = -6;
+					goto PerServerCleanup;
+				}
+
+				settings.bNeedToDeleteService = true; //always try to clean up if we've gotten this far
+
+				//Send settings, and find out if file(s) need to be copied
+				if (false == SendSettings(*cItr, settings, hPipe, bNeedToSendFile))
+				{
+					exitCode = -7;
+					goto PerServerCleanup;
+				}
+
+				//copy target if needed
+				if (bNeedToSendFile)
+				{
+					if (1 == settings.srcFileInfos.size())
+						Log(StrFormat(L"Copying %s remotely...", settings.srcFileInfos[0].filenameOnly), false);
+					else
+						Log(StrFormat(L"Copying %u files remotely...", settings.srcFileInfos.size()), false);
+
+					if (false == SendFilesToRemote(*cItr, settings, hPipe))
+					{
+						exitCode = -8;
+						goto PerServerCleanup;
+					}
+				}
+
+				Log(L"", false); //blank line
+
+				//establish communication with remote service
+				//when this returns, the remote app has shutdown (or we weren't supposed to wait for it)
+				StartRemoteApp(*cItr, settings, hPipe, exitCode);
+
+			PerServerCleanup:
+				if (settings.bNeedToDeleteService)
+						StopAndDeleteRemoteService(*cItr, settings); //always cleanup
+				if (settings.bNeedToDeleteServiceFile)
+					DeletePAExecFromRemote(*cItr, settings);
+				if (settings.bNeedToDetachFromAdmin)
+					EstablishConnection(settings, *cItr, L"ADMIN$", false);
+				if (settings.bNeedToDetachFromIPC)
+					EstablishConnection(settings, *cItr, L"IPC$", false);
+				if (false == gbStop) //if stopping, just bail -- the OS will close these (and some of them might be invalid now anyway)
+				{
+					if (!BAD_HANDLE(hPipe))
+						CloseHandle(hPipe);
+					if (!BAD_HANDLE(settings.hProcess))
+					{
+						CloseHandle(settings.hProcess);
+						settings.hProcess = NULL;
+					}
+					if (!BAD_HANDLE(settings.hStdErr))
+					{
+						CloseHandle(settings.hStdErr);
+						settings.hStdErr = NULL;
+					}
+					if (!BAD_HANDLE(settings.hStdIn))
+					{
+						CloseHandle(settings.hStdIn);
+						settings.hStdIn = NULL;
+					}
+					if (!BAD_HANDLE(settings.hStdOut))
+					{
+						CloseHandle(settings.hStdOut);
+						settings.hStdOut = NULL;
+					}
+				}
 			}
-
-			PrintUsage();
-			bPrintExitCode = false;
-			exitCode = -2;
 		}
-
-		//clean up
-		if(!BAD_HANDLE(settings.hUserProfile))
+	}
+	else
+	{
+		if (gbStop)
 		{
-			UnloadUserProfile(settings.hUser, settings.hUserProfile);
-			settings.hUserProfile = NULL;
+			exitCode = -11;
+			goto Exit;
 		}
-		if(!BAD_HANDLE(settings.hUser))
-		{
-			CloseHandle(settings.hUser);
-			settings.hUser = NULL;
-		}
+
+		PrintUsage();
+		bPrintExitCode = false;
+		exitCode = -2;
+	}
+
+	//clean up
+	if (!BAD_HANDLE(settings.hUserProfile))
+	{
+		UnloadUserProfile(settings.hUser, settings.hUserProfile);
+		settings.hUserProfile = NULL;
+	}
+	if (!BAD_HANDLE(settings.hUser))
+	{
+		CloseHandle(settings.hUser);
+		settings.hUser = NULL;
+	}
 	//}
 
 Exit:
 	gbStop = true;
 
-	if(bPrintExitCode)
+	if (bPrintExitCode)
 		Log(StrFormat(L"\r\nPAExec returning exit code %d\r\n", exitCode), false);
 
 #ifdef _DEBUG
