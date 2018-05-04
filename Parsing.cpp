@@ -183,6 +183,7 @@ CommandList gSupportedCommands[] =
 {
 	{L"u", true, true},
 	{L"p", true, false},
+	{L"q", false, false},
 	{L"dd", true, true},
 	{L"p@", true, true},
 	{L"p@d", false, false},
@@ -450,6 +451,9 @@ bool ParseCommandLine(Settings& settings, LPCWSTR cmdLine)
 					Log(L"Failed to delete p@d file", false);
 		}
 
+		if (cmdParser.HasKey(L"q"))
+			settings.bSilent = true;
+
 		if (cmdParser.HasKey(L"dd"))
 		{
 			settings.destDir = cmdParser.GetVal(L"dd");
@@ -471,6 +475,13 @@ bool ParseCommandLine(Settings& settings, LPCWSTR cmdLine)
 
 			if(false == bPasswordSet)
 			{
+				// Are we running silent only?
+				if (settings.bSilent)
+				{
+					Log(L"Password required", true);
+					return false;
+				}
+
 #define PW_BUFF_LEN 500
 				wchar_t pwBuffer[PW_BUFF_LEN] = {0};
 				wprintf(L"Password: ");

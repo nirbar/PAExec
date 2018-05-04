@@ -136,6 +136,7 @@ class Settings
 public:
 	Settings() 
 	{ 
+		bSilent = false;
 		bCopyFiles = false; 
 		bForceCopy = false; 
 		bCopyIfNewerOrHigherVer = false; 
@@ -176,6 +177,7 @@ public:
 			msg << (DWORD)allowedProcessors.size();
 			for(std::vector<WORD>::iterator itr = allowedProcessors.begin(); allowedProcessors.end() != itr; itr++)
 				msg << (DWORD)*itr;
+			msg << bSilent;
 			msg << bCopyFiles;
 			msg << bForceCopy;
 			msg << bCopyIfNewerOrHigherVer;
@@ -236,6 +238,7 @@ public:
 				msg >> proc;
 				allowedProcessors.push_back((WORD)proc);
 			}
+			msg >> bSilent;
 			msg >> bCopyFiles;
 			msg >> bForceCopy;
 			msg >> bCopyIfNewerOrHigherVer;
@@ -300,6 +303,7 @@ public:
 	bool bDontWaitForTerminate;
 	bool bDontLoadProfile;
 	DWORD sessionToInteractWith; 
+	bool bSilent;
 	bool bInteractive;
 	bool bRunElevated;
 	bool bRunLimited;
